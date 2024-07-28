@@ -20,12 +20,12 @@ function M.set_defaults(opts)
   cache = vim.deepcopy(opts)
 end
 
-local function dispatch_config_on_context(ctx, config)
+local function dispatch_config_on_context(ctx, config, literal_only)
   local result = {}
   for key, value in pairs(config) do
     if type(value) == 'table' then
-      result[key] = dispatch_config_on_context(ctx, value)
-    elseif type(value) == 'function' then
+      result[key] = dispatch_config_on_context(ctx, value, literal_only)
+    elseif not literal_only and type(value) == 'function' then
       result[key] = value(ctx)
     else
       result[key] = value
@@ -36,6 +36,7 @@ end
 
 ---@class Context
 ---@field filetype string
+---@field literal_config table
 local Context = {}
 Context.__index = Context
 
@@ -52,26 +53,33 @@ end
 
 M.Context = Context
 
+local recursion_level = 0
 ---get configuration
 ---@param ctx? Context
----@param force_reload? boolean
-function M.get(ctx, force_reload)
-  if not ctx then
-    ctx = M.Context.new()
+function M.get(ctx)
+  recursion_level = recursion_level + 1
+
+  if recursion_level > 2 then
+    error 'too many levels of recursion in nvim-conf.get(); this is a bug of nvim-conf'
   end
 
-  ctx:populate_env()
-
-  if force_reload then
-    cache = nil
-  end
+  local literal_only = recursion_level >= 2
 
   if not cache then
     load()
   end
 
+  if not ctx then
+    ctx = M.Context.new()
+  end
+  ctx:populate_env()
+
   local config = cache
-  return dispatch_config_on_context(ctx, config)
+  local res = dispatch_config_on_context(ctx, config, literal_only)
+
+  recursion_level = recursion_level - 1
+
+  return res
 end
 
 function M.function_value(fn)
@@ -80,7 +88,13 @@ function M.function_value(fn)
   end
 end
 
-function M.per_filetype(filetype_opt_map)
+function M.lazy_value(fn)
+  return function(_)
+    return fn()
+  end
+end
+
+function M.per_filetype_value(filetype_opt_map)
   return function(ctx)
     for filetypes, value in pairs(filetype_opt_map) do
       filetypes = vim.split(filetypes, '[, ]')
