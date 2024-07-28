@@ -40,7 +40,6 @@ end
 
 ---@class Context
 ---@field filetype string
----@field literal_config table
 local Context = {}
 Context.__index = Context
 
