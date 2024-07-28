@@ -20,16 +20,20 @@ function M.set_defaults(opts)
   cache = vim.deepcopy(opts)
 end
 
-local function dispatch_config_on_context(ctx, config, literal_only)
+local function dispatch_value_on_context(ctx, value, literal_only)
+  if type(value) == 'table' then
+    return dispatch_value_on_context(ctx, value, literal_only)
+  elseif not literal_only and type(value) == 'function' then
+    return value(ctx)
+  else
+    return value
+  end
+end
+
+local function resolve_config_on_context(ctx, config, literal_only)
   local result = {}
   for key, value in pairs(config) do
-    if type(value) == 'table' then
-      result[key] = dispatch_config_on_context(ctx, value, literal_only)
-    elseif not literal_only and type(value) == 'function' then
-      result[key] = value(ctx)
-    else
-      result[key] = value
-    end
+    result[key] = dispatch_value_on_context(ctx, value, literal_only)
   end
   return result
 end
@@ -75,7 +79,7 @@ function M.get(ctx)
   ctx:populate_env()
 
   local config = cache
-  local res = dispatch_config_on_context(ctx, config, literal_only)
+  local res = resolve_config_on_context(ctx, config, literal_only)
 
   recursion_level = recursion_level - 1
 
@@ -101,6 +105,10 @@ function M.per_filetype_value(filetype_opt_map)
       if table.concat(filetypes, ','):find(ctx.filetype) then
         return value
       end
+    end
+
+    if filetype_opt_map['_'] then
+      return filetype_opt_map['_']
     end
   end
 end
