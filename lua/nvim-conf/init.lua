@@ -100,16 +100,45 @@ end
 
 function M.per_filetype_value(filetype_opt_map)
   return function(ctx)
+    local priorities = {}
+    local min_priority = 0
+
     for filetypes, value in pairs(filetype_opt_map) do
       filetypes = vim.split(filetypes, '[, ]')
       if table.concat(filetypes, ','):find(ctx.filetype) then
-        return value
+        min_priority = math.min(min_priority, -#filetypes - 1)
+        table.insert(priorities, {
+          priority = -#filetypes,
+          value = value,
+        })
       end
     end
 
     if filetype_opt_map['_'] then
-      return filetype_opt_map['_']
+      table.insert(priorities, {
+        priority = min_priority,
+        value = filetype_opt_map['_'],
+      })
     end
+
+    table.sort(priorities, function(a, b)
+      return a.priority < b.priority
+    end)
+
+    local merged = nil
+    for _, entry in ipairs(priorities) do
+      if type(entry.value) == 'table' then
+        if type(merged) ~= 'table' then
+          merged = vim.deepcopy(entry.value)
+        else
+          merged = vim.tbl_deep_extend('force', merged, entry.value)
+        end
+      else
+        merged = entry.value
+      end
+    end
+
+    return merged
   end
 end
 
