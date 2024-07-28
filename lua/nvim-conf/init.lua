@@ -1,23 +1,23 @@
 local M = {}
 
 local default_config = {}
-local cache = {}
 
 -- Function to load workspace configuration and merge it with default
-local function load()
-  cache = vim.deepcopy(default_config)
+local function force_reload()
+  local config = vim.deepcopy(default_config)
   local workspace_config_path = vim.fn.getcwd() .. '/.vim/conf.lua'
   if vim.fn.filereadable(workspace_config_path) == 1 then
     local content = table.concat(vim.fn.readfile(workspace_config_path), '\n')
     local workspace_config =
       require('nvim-conf.safe_loader').safe_load(content)
-    cache = vim.tbl_deep_extend('force', cache, workspace_config)
+    config = vim.tbl_deep_extend('force', config, workspace_config)
   end
+
+  return config
 end
 
 function M.set_defaults(opts)
   default_config = opts
-  cache = vim.deepcopy(opts)
 end
 
 local function resolve_config_on_context(ctx, config, literal_only)
@@ -52,6 +52,7 @@ end
 
 M.Context = Context
 
+local config_cache = nil
 local recursion_level = 0
 ---get configuration
 ---@param ctx? Context
@@ -64,8 +65,8 @@ function M.get(ctx)
 
   local literal_only = recursion_level >= 2
 
-  if not cache then
-    load()
+  if not config_cache then
+    config_cache = force_reload()
   end
 
   if not ctx then
@@ -73,8 +74,7 @@ function M.get(ctx)
   end
   ctx:populate_env()
 
-  local config = cache
-  local res = resolve_config_on_context(ctx, config, literal_only)
+  local res = resolve_config_on_context(ctx, config_cache, literal_only)
 
   recursion_level = recursion_level - 1
 

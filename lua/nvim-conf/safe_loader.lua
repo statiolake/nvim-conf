@@ -31,6 +31,7 @@ local function create_safe_env()
       randomseed = math.randomseed,
     },
     -- Add other necessary functions or modules here
+    nc = require 'nvim-conf',
   }
 end
 
