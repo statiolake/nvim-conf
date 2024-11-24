@@ -1,80 +1,66 @@
 local M = {}
 
-local default_config = {}
+M.Config = require('nvim-conf.config').Config
+M.Context = require('nvim-conf.context').Context
+M.DynamicValue = require('nvim-conf.dynamic_value').DynamicValue
+
+local config = M.Config.new()
+local is_workspace_config_loaded = false
 
 -- Function to load workspace configuration and merge it with default
-local function force_reload()
-  local config = vim.deepcopy(default_config)
+local function force_reload_workspace_config()
   local workspace_config_path = vim.fn.getcwd() .. '/.vim/conf.lua'
   if vim.fn.filereadable(workspace_config_path) == 1 then
     local content = table.concat(vim.fn.readfile(workspace_config_path), '\n')
-    local workspace_config =
-      require('nvim-conf.safe_loader').safe_load(content)
-    config = vim.tbl_deep_extend('force', config, workspace_config)
-  end
+    local ok, workspace_config =
+      pcall(require('nvim-conf.safe_loader').safe_load, content)
+    if not ok then
+      print('error while loading workspace configuration:', workspace_config)
+      workspace_config = {}
+    end
 
-  return config
+    config:set_workspace(workspace_config)
+  end
 end
 
 function M.set_defaults(opts)
-  default_config = opts
+  config:set_global(opts)
 end
 
-local function resolve_config_on_context(ctx, config, literal_only)
-  local result = {}
-  for key, value in pairs(config) do
-    if type(value) == 'table' then
-      result[key] = resolve_config_on_context(ctx, value, literal_only)
-    elseif not literal_only and type(value) == 'function' then
-      result[key] = value(ctx)
-    else
-      result[key] = value
-    end
-  end
-  return result
-end
-
----@class Context
----@field filetype string
-local Context = {}
-Context.__index = Context
-
-function Context.new()
-  local self = setmetatable({}, Context)
-  return self
-end
-
-function Context:populate_env()
-  if not self.filetype then
-    self.filetype = vim.bo.filetype
-  end
-end
-
-M.Context = Context
-
-local config_cache = nil
+---Recursion count of get() call to handle nested configuration. Recursion
+---usually occurs when get() is called within the function value of
+---M.function_value().
 local recursion_level = 0
+
 ---get configuration
 ---@param ctx? Context
 function M.get(ctx)
   recursion_level = recursion_level + 1
 
-  if recursion_level > 2 then
-    error 'too many levels of recursion in nvim-conf.get(); this is a bug of nvim-conf'
-  end
+  -- It should never reach here, because the get() of second level must be
+  -- literal-only, so it shouldn't evaluate any function value.
+  assert(
+    recursion_level <= 2,
+    string.format(
+      'too deep recursion (%s) in nvim-conf.get(); this is a bug of nvim-conf',
+      recursion_level
+    )
+  )
 
+  -- The second level of get() resolves values in literal-only manner so that
+  -- it doesn't cause an infinite recursion.
   local literal_only = recursion_level >= 2
 
-  if not config_cache then
-    config_cache = force_reload()
+  if not is_workspace_config_loaded then
+    force_reload_workspace_config()
+    is_workspace_config_loaded = true
   end
 
   if not ctx then
     ctx = M.Context.new()
   end
-  ctx:populate_env()
 
-  local res = resolve_config_on_context(ctx, config_cache, literal_only)
+  local res = config:resolve(ctx, literal_only)
 
   recursion_level = recursion_level - 1
 
@@ -82,19 +68,19 @@ function M.get(ctx)
 end
 
 function M.function_value(fn)
-  return function(_)
+  return M.DynamicValue.new(function(_)
     return fn
-  end
+  end)
 end
 
 function M.lazy_value(fn)
-  return function(_)
+  return M.DynamicValue.new(function(_)
     return fn()
-  end
+  end)
 end
 
 function M.per_filetype_value(filetype_opt_map)
-  return function(ctx)
+  return M.DynamicValue.new(function(ctx)
     local priorities = {}
     local min_priority = 0
 
@@ -134,7 +120,7 @@ function M.per_filetype_value(filetype_opt_map)
     end
 
     return merged
-  end
+  end)
 end
 
 return M
