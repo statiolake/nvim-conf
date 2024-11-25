@@ -67,9 +67,9 @@ function M.get(ctx)
   return res
 end
 
-function M.function_value(fn)
-  return M.DynamicValue.new(function(_)
-    return fn
+function M.contextual_value(fn)
+  return M.DynamicValue.new(function(ctx)
+    return fn(ctx)
   end)
 end
 
